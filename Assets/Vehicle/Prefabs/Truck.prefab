@@ -453,9 +453,9 @@ MonoBehaviour:
   maxBrakingCoef: 0.01
   rollingResistance: 0.02
   steeringAngle: 25
-  steerSpeed: 30
+  steerSpeed: 120
   maxSteerLimitRatio: 0.95
-  steerReturnSpeed: 40
+  steerReturnSpeed: 120
   autoStopSpeedMS: 1
   frontLeftElement: {fileID: 7878132770644548935}
   frontRightElement: {fileID: 7878132770862165854}

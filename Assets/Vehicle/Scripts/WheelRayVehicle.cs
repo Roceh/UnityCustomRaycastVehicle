@@ -35,11 +35,11 @@ namespace UnityCustomRaycastVehicle
 
         [Tooltip("Maximum steering angle wheels can be turned")]
         [SerializeField]
-        public float steeringAngle = 30.0f;
+        public float steeringAngle = 25.0f;
 
         [Tooltip("Maximum speed wheels can be turned at")]
         [SerializeField]
-        public float steerSpeed = 15.0f;
+        public float steerSpeed = 120.0f;
 
         [Tooltip("Ratio to reduce steering by as speed increases")]
         [SerializeField]
@@ -47,7 +47,7 @@ namespace UnityCustomRaycastVehicle
 
         [Tooltip("How fast wheels return to center after steering input stopped")]
         [SerializeField]
-        public float steerReturnSpeed = 30.0f;
+        public float steerReturnSpeed = 120.0f;
 
         [Tooltip("Minimum speed to fully stop")]
         [SerializeField]
@@ -163,80 +163,82 @@ namespace UnityCustomRaycastVehicle
         {
             // Calculate forward speed
             _currentSpeed = transform.InverseTransformDirection(_rb.velocity).z;
+            
+            Vector3 finalForce;
+            var finalBrake = rollingResistance;
 
-            // 4WD with front wheel steering
-            foreach (var driveElement in _driveElements)
+            // steer wheels gradualy based on steering input
+            if (_steerInput != 0)
             {
-                Vector3 finalForce;
-                var finalBrake = rollingResistance;
-
-                // steer wheels gradualy based on steering input
-                if (_steerInput != 0)
+                var desiredAngle = -_steerInput * steeringAngle;
+                _currentSteerAngle = Mathf.MoveTowards(_currentSteerAngle, -desiredAngle, steerSpeed * delta);
+            }
+            else
+            {
+                // return wheels to center with wheel return speed
+                if (!Mathf.Approximately(_currentSteerAngle, 0.0f))
                 {
-                    var desiredAngle = -_steerInput * steeringAngle;
-                    _currentSteerAngle = Mathf.MoveTowards(_currentSteerAngle, -desiredAngle, steerSpeed * delta);
-                }
-                else
-                {
-                    // return wheels to center with wheel return speed
-                    if (!Mathf.Approximately(_currentSteerAngle, 0.0f))
+                    if (_currentSteerAngle > 0.0f)
                     {
-                        if (_currentSteerAngle > 0.0f)
-                        {
-                            _currentSteerAngle -= steerReturnSpeed * delta;
-                        }
-                        else
-                        {
-                            _currentSteerAngle += steerReturnSpeed * delta;
-                        }
+                        _currentSteerAngle -= steerReturnSpeed * delta;
                     }
                     else
                     {
-                        _currentSteerAngle = 0.0f;
+                        _currentSteerAngle += steerReturnSpeed * delta;
                     }
                 }
-
-                // limit steering based on speed and apply steering
-                var maxSteerRatio = RangeLerp(_currentSpeed * 3.6f, 0f, maxSpeedKph, 0f, maxSteerLimitRatio, true);
-                _maxSteerAngle = (1 - maxSteerRatio) * steeringAngle;
-                _currentSteerAngle = Mathf.Clamp(_currentSteerAngle, -_maxSteerAngle, _maxSteerAngle);
-                frontRightElement.localRotation = Quaternion.Euler(0, _currentSteerAngle, 0);
-                frontLeftElement.localRotation = Quaternion.Euler(0, _currentSteerAngle, 0);
-
-                // no braking if we are driving
-                if (_accelInput != 0)
+                else
                 {
-                    finalBrake = 0;
+                    _currentSteerAngle = 0.0f;
                 }
+            }
 
-                // brake if movement opposite intended direction
-                if (Mathf.Sign(_currentSpeed) != Mathf.Sign(_accelInput) && !Mathf.Approximately(_currentSpeed, 0) && _accelInput != 0)
-                {
-                    finalBrake = maxBrakingCoef * Mathf.Abs(_accelInput);
-                }
+            // limit steering based on speed and apply steering
+            var maxSteerRatio = RangeLerp(_currentSpeed * 3.6f, 0f, maxSpeedKph, 0f, maxSteerLimitRatio, true);
+            _maxSteerAngle = (1 - maxSteerRatio) * steeringAngle;
+            _currentSteerAngle = Mathf.Clamp(_currentSteerAngle, -_maxSteerAngle, _maxSteerAngle);
 
-                // Apply parking brake if vehicle is sitting still with no inputs
-                if (_accelInput == 0 && _steerInput == 0 && Mathf.Abs(_currentSpeed) < autoStopSpeedMS)
-                {
-                    finalBrake = maxBrakingCoef;
-                }
+            // front wheel steering
+            frontRightElement.localRotation = Quaternion.Euler(0, _currentSteerAngle, 0);
+            frontLeftElement.localRotation = Quaternion.Euler(0, _currentSteerAngle, 0);
 
-                // Calculate motor forces
-                float speedInterp = 0f;
+            // no braking if we are driving
+            if (_accelInput != 0)
+            {
+                finalBrake = 0;
+            }
 
-                if (_accelInput > 0)
-                {
-                    speedInterp = RangeLerp(Mathf.Abs(_currentSpeed), 0.0f, maxSpeedKph / 3.6f, 0.0f, 1.0f, true);
-                }
-                else if (_accelInput < 0)
-                {
-                    speedInterp = RangeLerp(Mathf.Abs(_currentSpeed), 0.0f, maxReverseSpeedKph / 3.6f, 0.0f, 1.0f, true);
-                }
+            // brake if movement opposite intended direction
+            if (Mathf.Sign(_currentSpeed) != Mathf.Sign(_accelInput) && !Mathf.Approximately(_currentSpeed, 0) && _accelInput != 0)
+            {
+                finalBrake = maxBrakingCoef * Mathf.Abs(_accelInput);
+            }
 
-                _currentDrivePower = torqueCurve.Evaluate(speedInterp) * _drivePerRay;
+            // Apply parking brake if vehicle is sitting still with no inputs
+            if (_accelInput == 0 && _steerInput == 0 && Mathf.Abs(_currentSpeed) < autoStopSpeedMS)
+            {
+                finalBrake = maxBrakingCoef;
+            }
 
-                finalForce = transform.forward * _currentDrivePower * _accelInput;
+            // Calculate motor forces
+            float speedInterp = 0f;
 
+            if (_accelInput > 0)
+            {
+                speedInterp = RangeLerp(Mathf.Abs(_currentSpeed), 0.0f, maxSpeedKph / 3.6f, 0.0f, 1.0f, true);
+            }
+            else if (_accelInput < 0)
+            {
+                speedInterp = RangeLerp(Mathf.Abs(_currentSpeed), 0.0f, maxReverseSpeedKph / 3.6f, 0.0f, 1.0f, true);
+            }
+
+            _currentDrivePower = torqueCurve.Evaluate(speedInterp) * _drivePerRay;
+
+            finalForce = transform.forward * _currentDrivePower * _accelInput;
+
+            // 4WD 
+            foreach (var driveElement in _driveElements)
+            {
                 // Apply drive force and braking
                 driveElement.ApplyForce(finalForce);
                 driveElement.ApplyBrake(finalBrake);

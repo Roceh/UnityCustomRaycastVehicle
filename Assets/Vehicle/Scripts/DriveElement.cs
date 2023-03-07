@@ -65,7 +65,8 @@ namespace UnityCustomRaycastVehicle
         private float _ztraction = 0.15f;
 
         // these persist after each simulate
-        public ShapeCastResult _previousHit;
+        public Vector3 _previousHitPosition;
+        public float _previousHitDistance;
 
         public struct ShapeCastResult
         {
@@ -74,52 +75,26 @@ namespace UnityCustomRaycastVehicle
             public Vector3 hitNormal;
             public Vector3 hitVelocity;
             public GameObject hitObject;
-
-            public bool InSync(DriveElement parent, Reader reader)
-            {
-                // get the old state - probably a nicer way here
-                reader.ReadSingle();
-                var oldHitPosition = reader.Read<Vector3>();
-                reader.Read<Vector3>();
-                reader.Read<Vector3>();
-                reader.ReadGameObject();
-
-                // check if we have changed enough to warrent an update
-                return (oldHitPosition - hitPosition).magnitude < parent.minHitPositionalChange;
-            }
-
-            public void SetState(Reader reader)
-            {
-                hitDistance = reader.ReadSingle();
-                hitPosition = reader.Read<Vector3>();
-                hitNormal = reader.Read<Vector3>();
-                hitVelocity = reader.Read<Vector3>();
-                hitObject = reader.ReadGameObject();
-            }
-
-            public void GetState(Writer writer)
-            {
-                writer.Write(hitDistance);
-                writer.Write(hitPosition);
-                writer.Write(hitNormal);
-                writer.Write(hitVelocity);
-                writer.Write(hitObject);
-            }
         }
 
         public bool InSync(Reader reader)
         {
-            return _previousHit.InSync(this, reader);
+            var oldHitPosition = reader.Read<Vector3>();
+            reader.ReadSingle();
+
+            return (oldHitPosition - _previousHitPosition).magnitude < minHitPositionalChange;
         }
 
         public void GetState(Writer writer)
         {
-            _previousHit.GetState(writer);
+            writer.Write(_previousHitPosition);
+            writer.Write(_previousHitDistance);
         }
 
         public void SetState(Reader reader)
         {
-            _previousHit.SetState(reader);
+            _previousHitPosition = reader.Read<Vector3>();
+            _previousHitDistance = reader.ReadSingle();
         }
 
         // function to do sphere casting
@@ -188,8 +163,8 @@ namespace UnityCustomRaycastVehicle
             _rb = GetComponentInParent<Rigidbody>();
 
             _grounded = false;
-            _previousHit.hitPosition = transform.position + castTo;
-            _previousHit.hitDistance = Mathf.Abs(castTo.y);
+            _previousHitPosition = transform.position + castTo;
+            _previousHitDistance = Mathf.Abs(castTo.y);
         }
 
         public void Simulate(float delta)
@@ -208,11 +183,11 @@ namespace UnityCustomRaycastVehicle
                 //Debug.DrawLine(transform.position, castResult.hit_position, new Color(1, 0, 0));
 
                 // obtain instantaneaous linear velocity
-                Vector3 instantLinearVelocity = (_collisionPoint - _previousHit.hitPosition) / delta;
+                Vector3 instantLinearVelocity = (_collisionPoint - _previousHitPosition) / delta;
 
                 // apply spring force with damping force
                 float FSpring = stifness * (Mathf.Abs(castTo.y) - castResult.hitDistance);
-                float FDamp = damping * (_previousHit.hitDistance - castResult.hitDistance) / delta;
+                float FDamp = damping * (_previousHitDistance - castResult.hitDistance) / delta;
                 float suspensionForce = Mathf.Clamp((FSpring + FDamp) * springForce, 0, springMaxForce);
                 Vector3 suspensionForceVec = castResult.hitNormal * suspensionForce;
 
@@ -249,13 +224,14 @@ namespace UnityCustomRaycastVehicle
                     hitRb.AddForceAtPosition(-finalForce * forceUnderWheelScaler, GetCollisionPoint());
                 }
 
-                _previousHit = castResult;
+                _previousHitPosition = castResult.hitPosition;
+                _previousHitDistance = castResult.hitDistance;
             }
             else
             {
                 _grounded = false;
-                _previousHit.hitPosition = transform.position + castTo;
-                _previousHit.hitDistance = Mathf.Abs(castTo.y);
+                _previousHitPosition = transform.position + castTo;
+                _previousHitDistance = Mathf.Abs(castTo.y);
             }
         }
     }
